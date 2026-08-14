@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  books        Book[]
+  sessions     Session[]
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  refreshTokenHash String
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Book {
+  id          String   @id @default(cuid())
+  title       String
+  author      String?
+  fileUrl     String
+  fileType    String
+  coverUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progress    ReadingProgress?
+  highlights  Highlight[]
+  annotations Annotation[]
+
+  @@index([userId, createdAt])
+}
+
+model ReadingProgress {
+  id        String   @id @default(cuid())
+  location  String
+  percentage Float   @default(0)
+  updatedAt DateTime @updatedAt
+  bookId    String   @unique
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+}
+
+model Highlight {
+  id        String   @id @default(cuid())
+  cfiRange  String
+  text      String
+  color     String   @default("yellow")
+  createdAt DateTime @default(now())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([bookId])
+}
+
+model Annotation {
+  id        String   @id @default(cuid())
+  content   String
+  cfiRange  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([bookId])
+}
