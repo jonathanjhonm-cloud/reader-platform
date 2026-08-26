@@ -21,15 +21,15 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: { email, name: dto.name?.trim(), passwordHash: await argon2.hash(dto.password) },
     });
-    return this.createSession(user.id, user.email);
+    return this.createSessionForUser(user.id, user.email);
   }
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email.trim().toLowerCase() } });
-    if (!user || !(await argon2.verify(user.passwordHash, dto.password))) {
+    if (!user?.passwordHash || !(await argon2.verify(user.passwordHash, dto.password))) {
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
-    return this.createSession(user.id, user.email);
+    return this.createSessionForUser(user.id, user.email);
   }
 
   async refresh(sessionId: string, refreshToken: string) {
@@ -38,7 +38,7 @@ export class AuthService {
       throw new UnauthorizedException('Sessão inválida ou expirada');
     }
     await this.prisma.session.delete({ where: { id: session.id } });
-    return this.createSession(session.user.id, session.user.email);
+    return this.createSessionForUser(session.user.id, session.user.email);
   }
 
   verifyRefreshToken(token: string) {
@@ -51,7 +51,7 @@ export class AuthService {
     await this.prisma.session.deleteMany({ where: { id: sessionId } });
   }
 
-  private async createSession(userId: string, email: string) {
+  async createSessionForUser(userId: string, email: string) {
     const expiresIn = (this.config.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '30d') as never;
     const accessExpiresIn = (this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m') as never;
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
