@@ -17,6 +17,9 @@ O projeto permite importar arquivos locais ou do Google Drive, extrair conteúdo
 - Destaques e anotações vinculados ao usuário.
 - Interface escura e responsiva, focada em leitura.
 
+<img width="1334" height="602" alt="image" src="https://github.com/user-attachments/assets/bb92b312-0960-4122-9eac-59252ef6a927" />
+
+
 ## Arquitetura
 
 O repositório contém duas aplicações independentes:
