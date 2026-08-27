@@ -69,7 +69,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  me(@CurrentUser() user: JwtUser) { return { id: user.sub, email: user.email }; }
+  me(@CurrentUser() user: JwtUser) { return this.auth.profile(user.sub); }
 
   private respond(result: { accessToken: string; refreshToken: string; user: unknown }, reply: FastifyReply) {
     this.setRefreshCookie(result.refreshToken, reply);

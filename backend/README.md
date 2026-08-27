@@ -30,6 +30,10 @@ A API estará em `http://localhost:3001/api`.
 | GET/DELETE | `/api/books/:bookId` | Obtém/remove um livro próprio |
 | GET | `/api/books/:bookId/content` | Retorna as seções processadas em ordem de leitura |
 | PATCH | `/api/books/:bookId/progress` | Salva posição e porcentagem |
+| POST | `/api/books/upload` | Envia e processa um PDF ou EPUB diretamente |
+| POST | `/api/books/:bookId/assistant` | Analisa um trecho com o assistente de leitura |
+| GET | `/api/books/:bookId/cover` | Retorna a capa armazenada do livro |
+| POST | `/api/books/:bookId/cover/refresh` | Procura uma capa pelo título e autor |
 
 Nas rotas protegidas, envie `Authorization: Bearer <accessToken>`.
 
@@ -58,6 +62,10 @@ Com o access token da sua API, use `GET /api/drive/reading-files` para listar PD
 Para preparar um arquivo para o leitor, chame `POST /api/drive/files/:fileId/import`. A API cria o livro com status `PENDING` e envia o trabalho para uma fila Redis. Um worker baixa o arquivo, extrai o texto localmente, normaliza o conteúdo e persiste páginas de PDF ou capítulos de EPUB como seções ordenadas. Consulte o status e o resultado em `GET /api/books/:bookId/content`. O tamanho máximo padrão é 50 MB e pode ser configurado por `MAX_IMPORT_FILE_SIZE_MB`.
 
 Quando uma página de PDF não contém texto suficiente, o worker renderiza a página e aplica OCR local em português com Tesseract. A fila tenta novamente falhas transitórias três vezes por padrão. Redis é iniciado pelo `docker compose` e pode ser configurado por `REDIS_URL`.
+
+O upload direto não depende do Google Drive: envie um formulário `multipart/form-data` com o arquivo no campo `file` para `POST /api/books/upload`. Para habilitar o assistente de leitura, configure `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL`.
+
+Durante o processamento, a API extrai a capa indicada no EPUB ou renderiza a primeira página do PDF. Quando não encontra uma imagem no arquivo, consulta a Open Library pelo título e autor, respeitando o limite de uma busca por segundo, e armazena o resultado localmente. Configure `OPEN_LIBRARY_CONTACT_EMAIL` para identificar chamadas frequentes conforme as orientações do serviço.
 
 ## Upload e IA
 

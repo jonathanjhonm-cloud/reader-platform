@@ -31,6 +31,13 @@ export class GoogleService {
     return `https://accounts.google.com/o/oauth2/v2/auth?${query}`;
   }
 
+  async connectionStatus(userId: string) {
+    const configured = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'GOOGLE_TOKEN_ENCRYPTION_KEY']
+      .every((key) => Boolean(this.config.get<string>(key)));
+    const connected = configured && Boolean(await this.prisma.googleAccount.findUnique({ where: { userId }, select: { id: true } }));
+    return { configured, connected };
+  }
+
   async completeAuthorization(code: string) {
     const tokens = await this.requestTokens(new URLSearchParams({
       code,

@@ -5,12 +5,18 @@ import JSZip = require('jszip');
 import type { Worker as OcrWorker } from 'tesseract.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { DriveService } from './drive.service';
+import { BookCoverService } from '../books/book-cover.service';
 
 type ExtractedSection = { title?: string; content: string; wordCount: number };
+type BookMetadata = { title?: string; author?: string };
 
 @Injectable()
 export class BookProcessingService {
-  constructor(private readonly drive: DriveService, private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly drive: DriveService,
+    private readonly prisma: PrismaService,
+    private readonly covers: BookCoverService,
+  ) {}
 
   async prepareImport(userId: string, fileId: string) {
     const metadata = await this.drive.getFileMetadata(userId, fileId);
@@ -38,28 +44,102 @@ export class BookProcessingService {
     });
     try {
       const file = await this.drive.downloadFile(userId, fileId);
-      const sections = book.fileType === 'epub' ? await this.extractEpub(file.data) : await this.extractPdf(file.data);
-      if (!sections.length) {
-        throw new BadRequestException(book.fileType === 'pdf'
-          ? 'Não foi possível reconhecer texto no PDF, mesmo após OCR.'
-          : 'O EPUB não contém conteúdo de leitura reconhecível.');
-      }
-      const wordCount = sections.reduce((total, section) => total + section.wordCount, 0);
-      await this.prisma.$transaction([
-        this.prisma.bookSection.deleteMany({ where: { bookId: book.id } }),
-        this.prisma.bookSection.createMany({
-          data: sections.map((section, position) => ({ ...section, position, bookId: book.id })),
-        }),
-        this.prisma.book.update({
-          where: { id: book.id }, data: { processingStatus: 'READY', processingError: null, wordCount },
-        }),
-      ]);
-      return { bookId: book.id, sections: sections.length, wordCount };
+      return await this.extractAndPersist(book.id, book.fileType, file.data, book.title, book.author);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Falha ao processar o arquivo';
       await this.prisma.book.update({ where: { id: book.id }, data: { processingError: message.slice(0, 500) } });
       throw error;
     }
+  }
+
+  async importUpload(userId: string, filename: string, mimeType: string, data: Buffer) {
+    const fileType = this.fileType(mimeType, filename);
+    const maxBytes = Number(process.env.MAX_IMPORT_FILE_SIZE_MB ?? 50) * 1024 * 1024;
+    if (data.length > maxBytes) throw new BadRequestException(`O arquivo excede o limite de ${process.env.MAX_IMPORT_FILE_SIZE_MB ?? 50} MB`);
+    const book = await this.prisma.book.create({
+      data: {
+        userId,
+        title: filename.replace(/\.(pdf|epub)$/i, ''),
+        fileType,
+        fileUrl: `upload://${encodeURIComponent(filename)}`,
+        processingStatus: 'PROCESSING',
+      },
+    });
+    try {
+      await this.extractAndPersist(book.id, fileType, data, book.title, book.author);
+      return this.prisma.book.findUniqueOrThrow({ where: { id: book.id }, include: { progress: true } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao processar o arquivo';
+      await this.markFailed(book.id, message);
+      throw error;
+    }
+  }
+
+  private async extractAndPersist(bookId: string, fileType: string, data: Buffer, title: string, author?: string | null) {
+    const metadata = fileType === 'epub' ? await this.extractEpubMetadata(data) : await this.extractPdfMetadata(data);
+    const resolvedTitle = metadata.title || title;
+    const resolvedAuthor = metadata.author || author;
+    const sections = fileType === 'epub' ? await this.extractEpub(data) : await this.extractPdf(data);
+    if (!sections.length) {
+      throw new BadRequestException(fileType === 'pdf'
+        ? 'Não foi possível reconhecer texto no PDF, mesmo após OCR.'
+        : 'O EPUB não contém conteúdo de leitura reconhecível.');
+    }
+    const wordCount = sections.reduce((total, section) => total + section.wordCount, 0);
+    const cover = await this.covers.resolve(fileType, data, resolvedTitle, resolvedAuthor);
+    await this.prisma.$transaction([
+      this.prisma.bookSection.deleteMany({ where: { bookId } }),
+      this.prisma.bookSection.createMany({
+        data: sections.map((section, position) => ({ ...section, position, bookId })),
+      }),
+      this.prisma.book.update({
+        where: { id: bookId }, data: {
+          processingStatus: 'READY', processingError: null, wordCount,
+          title: resolvedTitle,
+          author: resolvedAuthor,
+          coverData: cover?.data ? Uint8Array.from(cover.data) : undefined,
+          coverMimeType: cover?.mimeType,
+          coverUrl: cover?.externalUrl,
+        },
+      }),
+    ]);
+    return { bookId, sections: sections.length, wordCount };
+  }
+
+  private async extractPdfMetadata(data: Buffer): Promise<BookMetadata> {
+    try {
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const task = pdfjs.getDocument({ data: new Uint8Array(data), useWorkerFetch: false });
+      const document = await task.promise;
+      try {
+        const metadata = await document.getMetadata();
+        const info = metadata.info as Record<string, unknown>;
+        return {
+          title: this.cleanMetadata(info.Title),
+          author: this.cleanMetadata(info.Author),
+        };
+      } finally { await task.destroy(); }
+    } catch { return {}; }
+  }
+
+  private async extractEpubMetadata(data: Buffer): Promise<BookMetadata> {
+    try {
+      const zip = await JSZip.loadAsync(data);
+      const container = await zip.file('META-INF/container.xml')?.async('string');
+      const opfPath = container?.match(/full-path=["']([^"']+)["']/i)?.[1];
+      const opf = opfPath ? await zip.file(opfPath)?.async('string') : undefined;
+      if (!opf) return {};
+      return {
+        title: this.cleanMetadata(opf.match(/<dc:title\b[^>]*>([\s\S]*?)<\/dc:title>/i)?.[1]),
+        author: this.cleanMetadata(opf.match(/<dc:creator\b[^>]*>([\s\S]*?)<\/dc:creator>/i)?.[1]),
+      };
+    } catch { return {}; }
+  }
+
+  private cleanMetadata(value: unknown) {
+    if (typeof value !== 'string') return undefined;
+    const cleaned = this.normalizeText(convert(value, { wordwrap: false }));
+    return cleaned || undefined;
   }
 
   async markFailed(bookId: string, message: string) {

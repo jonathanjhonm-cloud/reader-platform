@@ -47,6 +47,8 @@ model Book {
   fileUrl          String
   fileType         String
   coverUrl         String?
+  coverData        Bytes?
+  coverMimeType    String?
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   userId           String

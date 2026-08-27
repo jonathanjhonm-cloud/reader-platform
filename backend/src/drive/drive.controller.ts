@@ -14,6 +14,11 @@ export class DriveController {
     private readonly processingQueue: BookProcessingQueueService,
   ) {}
 
+  @Get('status')
+  status(@CurrentUser() user: JwtUser) {
+    return this.drive.status(user.sub);
+  }
+
   @Get('reading-files')
   list(@CurrentUser() user: JwtUser, @Query('pageToken') pageToken?: string) {
     return this.drive.listReadingFiles(user.sub, pageToken);

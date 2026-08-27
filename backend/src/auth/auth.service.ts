@@ -51,6 +51,14 @@ export class AuthService {
     await this.prisma.session.deleteMany({ where: { id: sessionId } });
   }
 
+  async profile(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, name: true },
+    });
+    return user;
+  }
+
   async createSessionForUser(userId: string, email: string) {
     const expiresIn = (this.config.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '30d') as never;
     const accessExpiresIn = (this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m') as never;

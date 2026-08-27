@@ -5,6 +5,10 @@ import { GoogleService } from '../auth/google.service';
 export class DriveService {
   constructor(private readonly google: GoogleService) {}
 
+  status(userId: string) {
+    return this.google.connectionStatus(userId);
+  }
+
   async listReadingFiles(userId: string, pageToken?: string) {
     const accessToken = await this.google.getAccessToken(userId);
     const query = new URLSearchParams({
