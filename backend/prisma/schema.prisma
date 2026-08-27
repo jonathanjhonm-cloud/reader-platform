@@ -8,27 +8,27 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String?
-  name         String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  books        Book[]
-  sessions     Session[]
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String?
+  name          String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  books         Book[]
+  sessions      Session[]
   googleAccount GoogleAccount?
 }
 
 model GoogleAccount {
-  id                    String   @id @default(cuid())
-  googleId              String   @unique
+  id                    String    @id @default(cuid())
+  googleId              String    @unique
   accessTokenEncrypted  String
   refreshTokenEncrypted String
   accessTokenExpiresAt  DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  userId                String   @unique
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Session {
@@ -41,30 +41,57 @@ model Session {
 }
 
 model Book {
-  id          String   @id @default(cuid())
-  title       String
-  author      String?
-  fileUrl     String
-  fileType    String
-  coverUrl    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  progress    ReadingProgress?
-  highlights  Highlight[]
-  annotations Annotation[]
+  id               String               @id @default(cuid())
+  title            String
+  author           String?
+  fileUrl          String
+  fileType         String
+  coverUrl         String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  userId           String
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progress         ReadingProgress?
+  highlights       Highlight[]
+  annotations      Annotation[]
+  sections         BookSection[]
+  sourceFileId     String?
+  processingStatus BookProcessingStatus @default(PENDING)
+  processingError  String?
+  wordCount        Int                  @default(0)
 
+  @@unique([userId, sourceFileId])
   @@index([userId, createdAt])
 }
 
-model ReadingProgress {
+model BookSection {
   id        String   @id @default(cuid())
-  location  String
-  percentage Float   @default(0)
-  updatedAt DateTime @updatedAt
-  bookId    String   @unique
+  position  Int
+  title     String?
+  content   String   @db.Text
+  wordCount Int      @default(0)
+  createdAt DateTime @default(now())
+  bookId    String
   book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, position])
+  @@index([bookId])
+}
+
+enum BookProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+model ReadingProgress {
+  id         String   @id @default(cuid())
+  location   String
+  percentage Float    @default(0)
+  updatedAt  DateTime @updatedAt
+  bookId     String   @unique
+  book       Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
 }
 
 model Highlight {

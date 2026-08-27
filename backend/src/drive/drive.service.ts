@@ -28,4 +28,15 @@ export class DriveService {
     if (!response.ok) throw new BadGatewayException('Não foi possível baixar este arquivo do Google Drive');
     return { contentType: response.headers.get('content-type') ?? 'application/octet-stream', data: Buffer.from(await response.arrayBuffer()) };
   }
+
+  async getFileMetadata(userId: string, fileId: string) {
+    const accessToken = await this.google.getAccessToken(userId);
+    const query = new URLSearchParams({ fields: 'id,name,mimeType,size,modifiedTime' });
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${query}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!response.ok) throw new BadGatewayException('Não foi possível obter os dados do arquivo no Google Drive');
+    return response.json() as Promise<{ id: string; name: string; mimeType: string; size?: string; modifiedTime?: string }>;
+  }
 }

@@ -21,6 +21,19 @@ export class BooksService {
     return book;
   }
 
+  async content(userId: string, bookId: string) {
+    const book = await this.prisma.book.findFirst({
+      where: { id: bookId, userId },
+      select: {
+        id: true, title: true, author: true, fileType: true, processingStatus: true,
+        processingError: true, wordCount: true,
+        sections: { orderBy: { position: 'asc' } },
+      },
+    });
+    if (!book) throw new NotFoundException('Livro não encontrado');
+    return book;
+  }
+
   create(userId: string, dto: CreateBookDto) {
     return this.prisma.book.create({ data: { ...dto, userId } });
   }

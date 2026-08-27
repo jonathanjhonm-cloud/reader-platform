@@ -20,6 +20,11 @@ export class BooksController {
   @Get(':bookId')
   get(@CurrentUser() user: JwtUser, @Param('bookId') bookId: string) { return this.books.get(user.sub, bookId); }
 
+  @Get(':bookId/content')
+  content(@CurrentUser() user: JwtUser, @Param('bookId') bookId: string) {
+    return this.books.content(user.sub, bookId);
+  }
+
   @Patch(':bookId/progress')
   updateProgress(@CurrentUser() user: JwtUser, @Param('bookId') bookId: string, @Body() dto: UpdateProgressDto) {
     return this.books.updateProgress(user.sub, bookId, dto);
