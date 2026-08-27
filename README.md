@@ -1,4 +1,4 @@
-# Lumen Reader
+# Lazy Reader
 
 O **Lumen Reader** é uma plataforma pessoal de leitura criada para centralizar livros e documentos, preservar o progresso do usuário e tornar a leitura mais prática com recursos de inteligência artificial.
 
