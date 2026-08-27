@@ -43,11 +43,13 @@ export type Book = {
   processingStatus: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
   processingError?: string | null;
   wordCount: number;
+  contentReviewedByAi: boolean;
+  removedSectionCount: number;
   progress?: { location?: string; percentage: number } | null;
   updatedAt: string;
 };
 export type BookSection = { id: string; position: number; title?: string | null; content: string; wordCount: number };
-export type BookContent = Pick<Book, 'id' | 'title' | 'author' | 'fileType' | 'processingStatus' | 'processingError' | 'wordCount' | 'progress'> & { sections: BookSection[] };
+export type BookContent = Pick<Book, 'id' | 'title' | 'author' | 'fileType' | 'processingStatus' | 'processingError' | 'wordCount' | 'progress' | 'contentReviewedByAi' | 'removedSectionCount'> & { sections: BookSection[] };
 
 export const api = {
   login: (email: string, password: string) => request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
@@ -58,6 +60,7 @@ export const api = {
   bookContent: (bookId: string) => request<BookContent>(`/books/${bookId}/content`),
   bookCover: (bookId: string) => requestBlob(`/books/${bookId}/cover`),
   refreshBookCover: (bookId: string) => request<{ available: boolean; coverUrl?: string | null }>(`/books/${bookId}/cover/refresh`, { method: 'POST' }),
+  deleteBook: (bookId: string) => request<void>(`/books/${bookId}`, { method: 'DELETE' }),
   uploadBook: (file: File) => {
     const body = new FormData();
     body.append('file', file);
