@@ -65,6 +65,8 @@ Quando uma página de PDF não contém texto suficiente, o worker renderiza a p�
 
 O upload direto não depende do Google Drive: envie um formulário `multipart/form-data` com o arquivo no campo `file` para `POST /api/books/upload`. Para habilitar o assistente de leitura, configure `OPENAI_API_KEY` e, opcionalmente, `OPENAI_MODEL`.
 
+Quando `OPENAI_API_KEY` estiver configurada, o processamento também revisa título e autor e analisa conservadoramente seções com sinais claros de extração corrompida. Use `OPENAI_PROCESSING_MODEL` para escolher um modelo específico para essa etapa ou `AI_BOOK_PROCESSING_ENABLED=false` para desativá-la. Se a API de IA estiver indisponível, a importação continua com a normalização local do texto.
+
 Durante o processamento, a API extrai a capa indicada no EPUB ou renderiza a primeira página do PDF. Quando não encontra uma imagem no arquivo, consulta a Open Library pelo título e autor, respeitando o limite de uma busca por segundo, e armazena o resultado localmente. Configure `OPEN_LIBRARY_CONTACT_EMAIL` para identificar chamadas frequentes conforme as orientações do serviço.
 
 ## Upload e IA

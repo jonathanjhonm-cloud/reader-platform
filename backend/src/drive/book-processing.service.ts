@@ -6,6 +6,7 @@ import type { Worker as OcrWorker } from 'tesseract.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { DriveService } from './drive.service';
 import { BookCoverService } from '../books/book-cover.service';
+import { BookIntelligenceService } from './book-intelligence.service';
 
 type ExtractedSection = { title?: string; content: string; wordCount: number };
 type BookMetadata = { title?: string; author?: string };
@@ -16,6 +17,7 @@ export class BookProcessingService {
     private readonly drive: DriveService,
     private readonly prisma: PrismaService,
     private readonly covers: BookCoverService,
+    private readonly intelligence: BookIntelligenceService,
   ) {}
 
   async prepareImport(userId: string, fileId: string) {
@@ -44,7 +46,7 @@ export class BookProcessingService {
     });
     try {
       const file = await this.drive.downloadFile(userId, fileId);
-      return await this.extractAndPersist(book.id, book.fileType, file.data, book.title, book.author);
+      return await this.extractAndPersist(userId, book.id, book.fileType, file.data, book.title, book.author);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Falha ao processar o arquivo';
       await this.prisma.book.update({ where: { id: book.id }, data: { processingError: message.slice(0, 500) } });
@@ -66,7 +68,7 @@ export class BookProcessingService {
       },
     });
     try {
-      await this.extractAndPersist(book.id, fileType, data, book.title, book.author);
+      await this.extractAndPersist(userId, book.id, fileType, data, book.title, book.author);
       return this.prisma.book.findUniqueOrThrow({ where: { id: book.id }, include: { progress: true } });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Falha ao processar o arquivo';
@@ -75,11 +77,14 @@ export class BookProcessingService {
     }
   }
 
-  private async extractAndPersist(bookId: string, fileType: string, data: Buffer, title: string, author?: string | null) {
+  private async extractAndPersist(userId: string, bookId: string, fileType: string, data: Buffer, title: string, author?: string | null) {
     const metadata = fileType === 'epub' ? await this.extractEpubMetadata(data) : await this.extractPdfMetadata(data);
-    const resolvedTitle = metadata.title || title;
-    const resolvedAuthor = metadata.author || author;
-    const sections = fileType === 'epub' ? await this.extractEpub(data) : await this.extractPdf(data);
+    const extractedMetadata = { title: metadata.title || title, author: metadata.author || author || undefined };
+    const extractedSections = fileType === 'epub' ? await this.extractEpub(data) : await this.extractPdf(data);
+    const prepared = await this.intelligence.prepare(userId, title, fileType, extractedMetadata, extractedSections);
+    const resolvedTitle = prepared.metadata.title || extractedMetadata.title || title;
+    const resolvedAuthor = prepared.metadata.author || extractedMetadata.author;
+    const sections = prepared.sections;
     if (!sections.length) {
       throw new BadRequestException(fileType === 'pdf'
         ? 'Não foi possível reconhecer texto no PDF, mesmo após OCR.'
@@ -97,6 +102,8 @@ export class BookProcessingService {
           processingStatus: 'READY', processingError: null, wordCount,
           title: resolvedTitle,
           author: resolvedAuthor,
+          contentReviewedByAi: prepared.reviewedByAi,
+          removedSectionCount: prepared.removedSectionCount,
           coverData: cover?.data ? Uint8Array.from(cover.data) : undefined,
           coverMimeType: cover?.mimeType,
           coverUrl: cover?.externalUrl,

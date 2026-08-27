@@ -5,10 +5,11 @@ import { DriveService } from './drive.service';
 import { BookProcessingService } from './book-processing.service';
 import { BookProcessingQueueService } from './book-processing-queue.service';
 import { BookCoverService } from '../books/book-cover.service';
+import { BookIntelligenceService } from './book-intelligence.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [DriveController],
-  providers: [DriveService, BookCoverService, BookProcessingService, BookProcessingQueueService],
+  providers: [DriveService, BookCoverService, BookIntelligenceService, BookProcessingService, BookProcessingQueueService],
 })
 export class DriveModule {}

@@ -14,6 +14,7 @@ export class BooksService {
       select: {
         id: true, title: true, author: true, fileType: true, coverUrl: true, coverMimeType: true,
         processingStatus: true, processingError: true, wordCount: true, updatedAt: true, progress: true,
+        contentReviewedByAi: true, removedSectionCount: true,
       },
       orderBy: { updatedAt: 'desc' },
     });
@@ -81,6 +82,7 @@ export class BooksService {
       select: {
         id: true, title: true, author: true, fileType: true, processingStatus: true,
         processingError: true, wordCount: true,
+        contentReviewedByAi: true, removedSectionCount: true,
         progress: true,
         sections: { orderBy: { position: 'asc' } },
       },

@@ -61,6 +61,8 @@ model Book {
   processingStatus BookProcessingStatus @default(PENDING)
   processingError  String?
   wordCount        Int                  @default(0)
+  contentReviewedByAi Boolean           @default(false)
+  removedSectionCount Int               @default(0)
 
   @@unique([userId, sourceFileId])
   @@index([userId, createdAt])
