@@ -5,3 +5,27 @@
 body { margin: 0; min-height: 100vh; background: #090b10; color: #e7eaf0; font-family: Arial, Helvetica, sans-serif; }
 ::selection { background: rgba(56, 189, 248, .32); }
 .noise { background-image: radial-gradient(circle at 14% 4%, rgba(56,189,248,.07), transparent 25rem), radial-gradient(circle at 92% 20%, rgba(168,85,247,.05), transparent 22rem); }
+
+@keyframes skeleton-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+@keyframes alert-in {
+  from { opacity: 0; transform: translateY(-8px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.skeleton { position: relative; overflow: hidden; }
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .055), transparent);
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+  content: '';
+}
+.operation-alert { animation: alert-in .22s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after, .operation-alert { animation: none; }
+}
