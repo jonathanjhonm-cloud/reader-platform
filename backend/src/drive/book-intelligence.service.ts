@@ -2,7 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 
-export type ReadingSection = { title?: string; content: string; wordCount: number };
+export type ReadingSection = {
+  title?: string;
+  content: string;
+  wordCount: number;
+  extractionMethod?: 'pdf' | 'ocr' | 'epub';
+  extractionQuality?: number;
+};
 export type ReadingMetadata = { title?: string; author?: string };
 
 type OpenAiResponse = {
@@ -51,7 +57,8 @@ export class BookIntelligenceService {
       return {
         metadata: enhancedMetadata,
         sections: safeSections,
-        reviewedByAi: true,
+        // Metadados analisados pela IA não significam que o conteúdo foi revisado.
+        reviewedByAi: suspicious.length > 0,
         removedSectionCount: sections.length - safeSections.length,
       };
     } catch (error) {
@@ -129,6 +136,7 @@ export class BookIntelligenceService {
           'Você faz uma revisão conservadora de texto extraído de livros.',
           'Exclua somente posições claramente ilegíveis, vazias, compostas por artefatos de OCR ou sem conteúdo textual útil.',
           'Não exclua capa textual, dedicatória, sumário, notas, páginas curtas, poemas ou conteúdo válido apenas por serem breves.',
+          'Não resuma, reescreva, complete lacunas nem invente trechos; esta etapa apenas classifica seções para exclusão.',
           'Retorne exclusivamente posições presentes na entrada.',
         ].join(' '),
         input: JSON.stringify(input),
@@ -198,6 +206,7 @@ export class BookIntelligenceService {
 
   private isSuspicious(section: ReadingSection) {
     if (section.wordCount < 4) return true;
+    if (section.extractionQuality != null && section.extractionQuality < 0.45) return true;
     const compact = section.content.replace(/\s/g, '');
     if (!compact) return true;
     const letters = compact.match(/\p{L}/gu)?.length ?? 0;

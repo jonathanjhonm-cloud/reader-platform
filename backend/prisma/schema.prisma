@@ -69,14 +69,16 @@ model Book {
 }
 
 model BookSection {
-  id        String   @id @default(cuid())
-  position  Int
-  title     String?
-  content   String   @db.Text
-  wordCount Int      @default(0)
-  createdAt DateTime @default(now())
-  bookId    String
-  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  id                String   @id @default(cuid())
+  position          Int
+  title             String?
+  content           String   @db.Text
+  wordCount         Int      @default(0)
+  extractionMethod  String   @default("unknown")
+  extractionQuality Float?
+  createdAt         DateTime @default(now())
+  bookId            String
+  book              Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
 
   @@unique([bookId, position])
   @@index([bookId])

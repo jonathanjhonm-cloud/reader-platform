@@ -1,18 +1,145 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { createCanvas } from '@napi-rs/canvas';
+import portugueseData from '@tesseract.js-data/por';
 import { convert } from 'html-to-text';
-import JSZip = require('jszip');
+import JSZip from 'jszip';
+import type { PDFPageProxy } from 'pdfjs-dist/types/src/display/api';
 import type { Worker as OcrWorker } from 'tesseract.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { DriveService } from './drive.service';
 import { BookCoverService } from '../books/book-cover.service';
 import { BookIntelligenceService } from './book-intelligence.service';
 
-type ExtractedSection = { title?: string; content: string; wordCount: number };
+type ExtractionMethod = 'pdf' | 'ocr' | 'epub';
+type ExtractedSection = {
+  title?: string;
+  content: string;
+  wordCount: number;
+  extractionMethod: ExtractionMethod;
+  extractionQuality?: number;
+};
 type BookMetadata = { title?: string; author?: string };
+
+const PORTUGUESE_COMMON_WORDS = new Set([
+  'a', 'ao', 'aos', 'aquela', 'aquele', 'aqueles', 'as', 'até', 'com', 'como', 'da', 'das', 'de', 'dela',
+  'dele', 'deles', 'depois', 'do', 'dos', 'e', 'ela', 'elas', 'ele', 'eles', 'em', 'entre', 'era', 'essa',
+  'esse', 'esta', 'este', 'eu', 'foi', 'há', 'isso', 'já', 'lhe', 'mais', 'mas', 'me', 'mesmo', 'meu',
+  'minha', 'muito', 'na', 'não', 'nas', 'nem', 'no', 'nos', 'nós', 'num', 'numa', 'o', 'onde', 'ou',
+  'para', 'pela', 'pelas', 'pelo', 'pelos', 'por', 'porque', 'quando', 'que', 'quem', 'se', 'sem', 'seu',
+  'sua', 'também', 'tem', 'tinha', 'todo', 'todos', 'um', 'uma', 'você', 'à', 'às', 'é', 'são',
+]);
+
+export type TextQualityAssessment = {
+  score: number;
+  lowQuality: boolean;
+  reasons: string[];
+  metrics: {
+    wordCount: number;
+    letterRatio: number;
+    plausibleWordRatio: number;
+    portugueseWordRatio: number;
+    uppercaseWordRatio: number;
+    unusualCharacterRatio: number;
+    replacementCharacterRatio: number;
+    veryLongWordRatio: number;
+    improbableWordRatio: number;
+    fragmentedWordRatio: number;
+  };
+};
+
+function clamp(value: number, minimum = 0, maximum = 1) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function ratio(part: number, total: number) {
+  return total ? part / total : 0;
+}
+
+export function evaluateExtractedText(
+  content: string,
+  minimumLength = 30,
+  qualityThreshold = 0.58,
+): TextQualityAssessment {
+  const compact = content.replace(/\s/gu, '');
+  const words = content.match(/\p{L}+(?:[’'-]\p{L}+)*/gu) ?? [];
+  const comparableWords = words.filter((word) => word.length > 2);
+  const normalizedWords = words.map((word) => word.toLocaleLowerCase('pt-BR'));
+  const letters = compact.match(/\p{L}/gu)?.length ?? 0;
+  const replacements = content.match(/\uFFFD/gu)?.length ?? 0;
+  const unusual = compact.match(/[^\p{L}\p{N}.,;:!?"'“”‘’(){}\[\]…—–\-_/\\@%+*=<>ºª°§€$£¥#&]/gu)?.length ?? 0;
+  const veryLongWords = words.filter((word) => word.length > 30).length;
+  const improbableWords = normalizedWords.filter((word) => {
+    const ascii = word.normalize('NFD').replace(/\p{M}/gu, '');
+    return word.length > 30
+      || /(.)\1{3,}/u.test(ascii)
+      || /[bcdfghjklmnpqrstvwxyz]{6,}/u.test(ascii)
+      || (word.length > 4 && !/[aeiou]/u.test(ascii));
+  }).length;
+  const plausibleWords = normalizedWords.filter((word) => {
+    const ascii = word.normalize('NFD').replace(/\p{M}/gu, '');
+    return word.length <= 30
+      && !/(.)\1{3,}/u.test(ascii)
+      && !/[bcdfghjklmnpqrstvwxyz]{6,}/u.test(ascii)
+      && (word.length <= 2 || /[aeiou]/u.test(ascii));
+  }).length;
+  const recognizedPortugueseWords = normalizedWords.filter((word) => PORTUGUESE_COMMON_WORDS.has(word)).length;
+  const uppercaseWords = comparableWords.filter((word) => word === word.toLocaleUpperCase('pt-BR')).length;
+  const fragmentedWords = words.filter((word) => word.length === 1 && !/[aeoàéó]/iu.test(word)).length;
+
+  const metrics = {
+    wordCount: words.length,
+    letterRatio: ratio(letters, compact.length),
+    plausibleWordRatio: ratio(plausibleWords, words.length),
+    portugueseWordRatio: ratio(recognizedPortugueseWords, words.length),
+    uppercaseWordRatio: ratio(uppercaseWords, comparableWords.length),
+    unusualCharacterRatio: ratio(unusual, compact.length),
+    replacementCharacterRatio: ratio(replacements, compact.length),
+    veryLongWordRatio: ratio(veryLongWords, words.length),
+    improbableWordRatio: ratio(improbableWords, words.length),
+    fragmentedWordRatio: ratio(fragmentedWords, words.length),
+  };
+
+  let score = 1;
+  score -= clamp((0.7 - metrics.letterRatio) / 0.7) * 0.24;
+  score -= clamp((0.72 - metrics.plausibleWordRatio) / 0.72) * 0.24;
+  score -= clamp((metrics.uppercaseWordRatio - 0.5) / 0.5) * 0.08;
+  score -= clamp(metrics.unusualCharacterRatio / 0.08) * 0.18;
+  score -= clamp(metrics.replacementCharacterRatio / 0.01) * 0.2;
+  score -= clamp(metrics.veryLongWordRatio / 0.08) * 0.14;
+  score -= clamp(metrics.improbableWordRatio / 0.18) * 0.2;
+  score -= clamp((metrics.fragmentedWordRatio - 0.2) / 0.5) * 0.14;
+  if (words.length >= 20) score -= clamp((0.06 - metrics.portugueseWordRatio) / 0.06) * 0.16;
+  score = Number(clamp(score).toFixed(3));
+
+  const reasons: string[] = [];
+  if (content.length < minimumLength) reasons.push('texto curto');
+  if (metrics.letterRatio < 0.55) reasons.push('baixa proporção de letras');
+  if (words.length >= 8 && metrics.plausibleWordRatio < 0.55) reasons.push('poucas palavras plausíveis');
+  if (words.length >= 12 && metrics.uppercaseWordRatio > 0.72) reasons.push('excesso de palavras em maiúsculas');
+  if (replacements >= 3 || metrics.replacementCharacterRatio > 0.005) reasons.push('caracteres de substituição');
+  if (metrics.unusualCharacterRatio > 0.06) reasons.push('símbolos incomuns em excesso');
+  if (metrics.veryLongWordRatio > 0.06) reasons.push('palavras excessivamente longas');
+  if (metrics.improbableWordRatio > 0.15) reasons.push('sequências de letras improváveis');
+  if (words.length >= 20 && metrics.portugueseWordRatio < 0.025) reasons.push('poucas palavras reconhecíveis em português');
+  if (words.length >= 20 && metrics.fragmentedWordRatio > 0.45) reasons.push('texto excessivamente fragmentado');
+
+  const hardFailure = replacements >= 3
+    || metrics.unusualCharacterRatio > 0.12
+    || (words.length >= 10 && metrics.plausibleWordRatio < 0.4)
+    || (words.length >= 60 && metrics.portugueseWordRatio < 0.01)
+    || (words.length >= 20 && metrics.improbableWordRatio > 0.25)
+    || (words.length >= 20 && metrics.fragmentedWordRatio > 0.6);
+  return {
+    score,
+    lowQuality: content.length < minimumLength || score < qualityThreshold || hardFailure,
+    reasons,
+    metrics,
+  };
+}
 
 @Injectable()
 export class BookProcessingService {
+  private readonly logger = new Logger(BookProcessingService.name);
   constructor(
     private readonly drive: DriveService,
     private readonly prisma: PrismaService,
@@ -167,19 +294,35 @@ export class BookProcessingService {
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(data), useWorkerFetch: false });
     const document = await loadingTask.promise;
     const sections: ExtractedSection[] = [];
+    const configuredMinimumLength = Number(process.env.OCR_MIN_TEXT_LENGTH ?? 30);
+    const configuredQualityThreshold = Number(process.env.OCR_MIN_TEXT_QUALITY ?? 0.58);
+    const minimumLength = Number.isFinite(configuredMinimumLength) ? Math.max(0, configuredMinimumLength) : 30;
+    const qualityThreshold = Number.isFinite(configuredQualityThreshold) ? clamp(configuredQualityThreshold) : 0.58;
     let ocrWorker: OcrWorker | undefined;
     try {
       for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
         const page = await document.getPage(pageNumber);
         const text = await page.getTextContent();
-        let content = this.normalizeText(text.items
+        const pdfContent = this.normalizeText(text.items
           .filter((item): item is typeof item & { str: string; hasEOL?: boolean } => 'str' in item)
           .map((item) => `${item.str}${item.hasEOL ? '\n' : ' '}`).join(''));
-        if (content.length < Number(process.env.OCR_MIN_TEXT_LENGTH ?? 30)) {
+        const pdfQuality = evaluateExtractedText(pdfContent, minimumLength, qualityThreshold);
+        let content = pdfContent;
+        let extractionMethod: ExtractionMethod = 'pdf';
+        let extractionQuality = pdfQuality.score;
+
+        if (pdfQuality.lowQuality) {
+          this.logger.debug(`OCR acionado na página ${pageNumber}: ${pdfQuality.reasons.join(', ') || `qualidade ${pdfQuality.score}`}`);
           ocrWorker ??= await this.createOcrWorker();
-          content = await this.ocrPage(page, ocrWorker);
+          const ocrContent = await this.ocrPage(page, ocrWorker);
+          if (ocrContent) {
+            const ocrQuality = evaluateExtractedText(ocrContent, minimumLength, qualityThreshold);
+            content = ocrContent;
+            extractionMethod = 'ocr';
+            extractionQuality = ocrQuality.score;
+          }
         }
-        if (content) sections.push(this.section(`Página ${pageNumber}`, content));
+        if (content) sections.push(this.section(`Página ${pageNumber}`, content, extractionMethod, extractionQuality));
         page.cleanup();
       }
     } finally {
@@ -190,15 +333,21 @@ export class BookProcessingService {
   }
 
   private async createOcrWorker() {
-    const { createWorker } = await import('tesseract.js');
-    const portugueseData = require('@tesseract.js-data/por') as { langPath: string };
-    return createWorker('por', undefined, {
+    const { createWorker, PSM } = await import('tesseract.js');
+    const worker = await createWorker('por', undefined, {
       langPath: portugueseData.langPath, gzip: true, cacheMethod: 'readOnly', logger: () => undefined,
     });
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.AUTO,
+      preserve_interword_spaces: '1',
+    });
+    return worker;
   }
 
-  private async ocrPage(page: any, worker: OcrWorker) {
-    const viewport = page.getViewport({ scale: Number(process.env.OCR_RENDER_SCALE ?? 2) });
+  private async ocrPage(page: PDFPageProxy, worker: OcrWorker) {
+    const configuredScale = Number(process.env.OCR_RENDER_SCALE ?? 2.5);
+    const scale = clamp(Number.isFinite(configuredScale) ? configuredScale : 2.5, 1.5, 4);
+    const viewport = page.getViewport({ scale });
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     await page.render({ canvas: canvas as never, canvasContext: canvas.getContext('2d') as never, viewport }).promise;
     const result = await worker.recognize(canvas.toBuffer('image/png'));
@@ -230,7 +379,7 @@ export class BookProcessingService {
         wordwrap: false,
         selectors: [{ selector: 'img', format: 'skip' }, { selector: 'a', options: { ignoreHref: true } }],
       }));
-      if (content) sections.push(this.section(title ? this.normalizeText(convert(title)) : undefined, content));
+      if (content) sections.push(this.section(title ? this.normalizeText(convert(title)) : undefined, content, 'epub'));
     }
     return sections;
   }
@@ -249,7 +398,12 @@ export class BookProcessingService {
     return value.replace(/\r\n?/g, '\n').replace(/[\t\f\v ]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  private section(title: string | undefined, content: string): ExtractedSection {
-    return { title, content, wordCount: content.split(/\s+/u).filter(Boolean).length };
+  private section(
+    title: string | undefined,
+    content: string,
+    extractionMethod: ExtractionMethod,
+    extractionQuality?: number,
+  ): ExtractedSection {
+    return { title, content, wordCount: content.split(/\s+/u).filter(Boolean).length, extractionMethod, extractionQuality };
   }
 }
