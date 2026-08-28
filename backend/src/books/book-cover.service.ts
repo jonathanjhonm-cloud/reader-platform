@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createCanvas } from '@napi-rs/canvas';
-import JSZip = require('jszip');
+import JSZip from 'jszip';
 
 type Cover = { data?: Buffer; mimeType?: string; externalUrl?: string };
 type OpenLibraryResult = { docs?: Array<{ cover_i?: number }> };
