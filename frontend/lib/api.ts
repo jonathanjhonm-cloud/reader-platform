@@ -5,11 +5,12 @@ type ApiError = { message?: string | string[] };
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = typeof window === 'undefined' ? null : sessionStorage.getItem('accessToken');
   const isFormData = init.body instanceof FormData;
+  const hasJsonBody = init.body != null && !isFormData;
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: 'include',
     headers: {
-      ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+      ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
