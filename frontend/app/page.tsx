@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowUpRight, BookMarked, Clock3, MoreVertical, Sparkles, Trash2 } from 'lucide-react';
@@ -101,10 +101,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [notice, setNotice] = useState<UploadFeedback | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    const token = sessionStorage.getItem('accessToken');
-    if (!token) { router.replace('/login'); return; }
     Promise.all([api.books(), api.me()])
       .then(([bookList, profile]) => { setBooks(bookList); setUserName(profile.name?.trim() || profile.email.split('@')[0]); })
       .catch(() => { sessionStorage.removeItem('accessToken'); router.replace('/login'); })
@@ -117,9 +116,27 @@ export default function Dashboard() {
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
 
+  const hasProcessingBooks = books.some((book) => book.processingStatus === 'PENDING' || book.processingStatus === 'PROCESSING');
+  useEffect(() => {
+    if (!hasProcessingBooks) return;
+    const intervalId = window.setInterval(() => {
+      void api.books().then(setBooks).catch(() => undefined);
+    }, 3_000);
+    return () => window.clearInterval(intervalId);
+  }, [hasProcessingBooks]);
+
   const featuredBook = books[0];
   const featuredProgress = featuredBook?.progress?.percentage ?? 0;
+  const normalizedQuery = searchQuery.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+  const filteredBooks = useMemo(() => {
+    if (!normalizedQuery) return books;
+    return books.filter((book) => `${book.title} ${book.author ?? ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').includes(normalizedQuery));
+  }, [books, normalizedQuery]);
   function addToLibrary(book: Book) { setBooks((current) => [book, ...current.filter((item) => item.id !== book.id)]); }
+  function addFromDrive(book: Book) {
+    addToLibrary(book);
+    setNotice({ variant: 'success', title: 'Importação iniciada', description: `“${book.title}” foi adicionado e está sendo preparado para leitura.` });
+  }
   async function deleteFromLibrary(book: Book) {
     try {
       await api.deleteBook(book.id);
@@ -130,12 +147,12 @@ export default function Dashboard() {
     }
   }
 
-  return <AppShell>
+  return <AppShell searchQuery={searchQuery} onSearchChange={setSearchQuery} onBookImported={addFromDrive}>
     {notice && <div className="operation-alert fixed right-4 top-16 z-[90] w-[calc(100%-2rem)] max-w-sm sm:right-6"><Alert {...notice} onClose={() => setNotice(null)} /></div>}
     <section className="mx-auto max-w-6xl px-5 py-9 sm:px-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div><p className="text-xs tracking-wide text-slate-500">Bom ter você aqui{userName && <>, <span className="font-serif text-[15px] italic tracking-normal text-violet-300">{userName}</span></>}.</p><h1 className="mt-1.5 text-[22px] font-semibold tracking-tight text-slate-100">Continue de onde parou</h1><p className="mt-1.5 text-xs text-slate-500">Sua leitura, sem ruído.</p></div>
-        <div className="flex gap-2"><DriveButton /><UploadBookButton onUploaded={addToLibrary} onFeedback={setNotice} /></div>
+        <div className="flex gap-2"><DriveButton onImported={addFromDrive} /><UploadBookButton onUploaded={addToLibrary} onFeedback={setNotice} /></div>
       </div>
 
       <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -147,8 +164,8 @@ export default function Dashboard() {
         <Card><CardContent className="p-5"><div className="flex items-center gap-2 text-[13px] text-slate-400"><Sparkles size={15} className="text-violet-300" />Assistente de leitura</div><p className="mt-4 text-xs leading-5 text-slate-400">Destaque um trecho e peça uma explicação, resumo ou contexto.</p><Button variant="outline" size="sm" disabled={!books.length} className="mt-5" onClick={() => books[0] && router.push(`/books/${books[0].id}`)}>Explorar recursos</Button></CardContent></Card>
       </div>
 
-      <div className="mt-10 flex items-center justify-between"><div><h2 className="text-base font-semibold text-slate-100">Biblioteca</h2>{loading ? <Skeleton className="mt-2 h-3.5 w-36" /> : <p className="mt-1 text-sm text-slate-500">{books.length ? `${books.length} itens sincronizados` : 'Seus livros vão aparecer aqui.'}</p>}</div><Button variant="ghost" size="sm">Ver tudo <ArrowUpRight size={14} /></Button></div>
-      {loading ? <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <BookCardSkeleton key={index} />)}</div> : books.length ? <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{books.map((book) => <BookCard key={book.id} book={book} onDelete={deleteFromLibrary} />)}</div> : <Card className="mt-5"><CardContent className="flex min-h-52 flex-col items-center justify-center p-6 text-center"><BookMarked size={24} className="text-slate-500" /><p className="mt-4 text-sm font-medium text-slate-200">Sua biblioteca está vazia</p><p className="mt-1 max-w-sm text-sm text-slate-500">Envie um PDF ou EPUB do seu computador para começar a ler.</p><div className="mt-5"><UploadBookButton compact onUploaded={addToLibrary} onFeedback={setNotice} /></div></CardContent></Card>}
+      <div id="biblioteca" className="mt-10 flex items-center justify-between"><div><h2 className="text-base font-semibold text-slate-100">Biblioteca</h2>{loading ? <Skeleton className="mt-2 h-3.5 w-36" /> : <p className="mt-1 text-sm text-slate-500">{normalizedQuery ? `${filteredBooks.length} de ${books.length} itens encontrados` : books.length ? `${books.length} itens sincronizados` : 'Seus livros vão aparecer aqui.'}</p>}</div><Button variant="ghost" size="sm" disabled={!normalizedQuery} onClick={() => setSearchQuery('')}>{normalizedQuery ? 'Limpar busca' : 'Ver tudo'} <ArrowUpRight size={14} /></Button></div>
+      {loading ? <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <BookCardSkeleton key={index} />)}</div> : filteredBooks.length ? <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">{filteredBooks.map((book) => <BookCard key={book.id} book={book} onDelete={deleteFromLibrary} />)}</div> : books.length ? <Card className="mt-5"><CardContent className="flex min-h-44 flex-col items-center justify-center p-6 text-center"><BookMarked size={24} className="text-slate-500" /><p className="mt-4 text-sm font-medium text-slate-200">Nenhum livro encontrado</p><p className="mt-1 max-w-sm text-sm text-slate-500">Tente buscar por outro título ou autor.</p><Button variant="ghost" size="sm" className="mt-3" onClick={() => setSearchQuery('')}>Limpar busca</Button></CardContent></Card> : <Card className="mt-5"><CardContent className="flex min-h-52 flex-col items-center justify-center p-6 text-center"><BookMarked size={24} className="text-slate-500" /><p className="mt-4 text-sm font-medium text-slate-200">Sua biblioteca está vazia</p><p className="mt-1 max-w-sm text-sm text-slate-500">Envie um PDF ou EPUB do seu computador para começar a ler.</p><div className="mt-5"><UploadBookButton compact onUploaded={addToLibrary} onFeedback={setNotice} /></div></CardContent></Card>}
       <div className="mt-10 flex items-center gap-2 text-xs text-slate-600"><Clock3 size={13} />Seu progresso é salvo automaticamente.</div>
     </section>
   </AppShell>;
