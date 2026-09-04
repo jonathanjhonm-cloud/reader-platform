@@ -101,25 +101,28 @@ model ReadingProgress {
 }
 
 model Highlight {
-  id        String   @id @default(cuid())
-  cfiRange  String
-  text      String
-  color     String   @default("yellow")
-  createdAt DateTime @default(now())
-  bookId    String
-  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  id         String      @id @default(cuid())
+  cfiRange   String
+  text       String
+  color      String      @default("yellow")
+  createdAt  DateTime    @default(now())
+  bookId     String
+  book       Book        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  annotation Annotation?
 
   @@index([bookId])
 }
 
 model Annotation {
-  id        String   @id @default(cuid())
-  content   String
-  cfiRange  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  bookId    String
-  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  id          String     @id @default(cuid())
+  content     String
+  cfiRange    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  bookId      String
+  book        Book       @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  highlightId String?    @unique
+  highlight   Highlight? @relation(fields: [highlightId], references: [id], onDelete: Cascade)
 
   @@index([bookId])
 }

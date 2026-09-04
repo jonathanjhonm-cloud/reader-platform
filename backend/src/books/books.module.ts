@@ -7,10 +7,11 @@ import { DriveService } from '../drive/drive.service';
 import { AuthModule } from '../auth/auth.module';
 import { BookCoverService } from './book-cover.service';
 import { BookIntelligenceService } from '../drive/book-intelligence.service';
+import { ReaderMarksService } from './reader-marks.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [BooksController],
-  providers: [BooksService, ReaderAssistantService, BookCoverService, BookIntelligenceService, BookProcessingService, DriveService],
+  providers: [BooksService, ReaderAssistantService, ReaderMarksService, BookCoverService, BookIntelligenceService, BookProcessingService, DriveService],
 })
 export class BooksModule {}

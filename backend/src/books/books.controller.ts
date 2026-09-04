@@ -9,6 +9,8 @@ import { UpdateProgressDto } from './dto/update-progress.dto';
 import { AssistantRequestDto } from './dto/assistant-request.dto';
 import { ReaderAssistantService } from './reader-assistant.service';
 import { BookProcessingService } from '../drive/book-processing.service';
+import { CreateHighlightDto, UpdateHighlightDto } from './dto/highlight.dto';
+import { ReaderMarksService } from './reader-marks.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('books')
@@ -17,6 +19,7 @@ export class BooksController {
     private readonly books: BooksService,
     private readonly processing: BookProcessingService,
     private readonly assistant: ReaderAssistantService,
+    private readonly marks: ReaderMarksService,
   ) {}
 
   @Get()
@@ -69,6 +72,40 @@ export class BooksController {
     @Body() dto: AssistantRequestDto,
   ) {
     return this.assistant.ask(user.sub, bookId, dto);
+  }
+
+  @Get(':bookId/highlights')
+  highlights(@CurrentUser() user: JwtUser, @Param('bookId') bookId: string) {
+    return this.marks.list(user.sub, bookId);
+  }
+
+  @Post(':bookId/highlights')
+  createHighlight(
+    @CurrentUser() user: JwtUser,
+    @Param('bookId') bookId: string,
+    @Body() dto: CreateHighlightDto,
+  ) {
+    return this.marks.create(user.sub, bookId, dto);
+  }
+
+  @Patch(':bookId/highlights/:highlightId')
+  updateHighlight(
+    @CurrentUser() user: JwtUser,
+    @Param('bookId') bookId: string,
+    @Param('highlightId') highlightId: string,
+    @Body() dto: UpdateHighlightDto,
+  ) {
+    return this.marks.update(user.sub, bookId, highlightId, dto);
+  }
+
+  @Delete(':bookId/highlights/:highlightId')
+  @HttpCode(204)
+  removeHighlight(
+    @CurrentUser() user: JwtUser,
+    @Param('bookId') bookId: string,
+    @Param('highlightId') highlightId: string,
+  ) {
+    return this.marks.remove(user.sub, bookId, highlightId);
   }
 
   @Delete(':bookId')
